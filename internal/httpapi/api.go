@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,8 @@ import (
 
 // ErrBadJSON 表示请求体不是单个合法 JSON 对象。
 var ErrBadJSON = errors.New("请求体不是合法的单个 JSON 对象")
+
+const maxJSONBody = 1 << 20
 
 // API 是负载均衡服务的 HTTP 接口实现，内含一份调度器存储。
 type API struct {
@@ -42,7 +45,14 @@ func decodeJSON(r *http.Request, v any) error {
 	if r.Body == nil {
 		return ErrBadJSON
 	}
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBody+1))
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrBadJSON, err)
+	}
+	if len(raw) > maxJSONBody {
+		return fmt.Errorf("%w: 请求体超过 1 MiB", ErrBadJSON)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return fmt.Errorf("%w: %v", ErrBadJSON, err)
